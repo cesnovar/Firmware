@@ -32,6 +32,14 @@
 ############################################################################
 
 px4_add_library(calibration
-	MagnetometerCalibration.cpp
-	MagnetometerCalibration.hpp
+	Accel.cpp
+	Accel.hpp
+	Gyro.cpp
+	Gyro.hpp
+	Magnetometer.cpp
+	Magnetometer.hpp
+	Utilities.cpp
+	Utilities.hpp
 )
+#target_compile_options(sensor_calibration PRIVATE ${MAX_CUSTOM_OPT_LEVEL})
+#target_include_directories(sensor_calibration PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
