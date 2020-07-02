@@ -31,11 +31,11 @@
 #
 ############################################################################
 
-px4_add_library(calibration
-	Accel.cpp
-	Accel.hpp
-	Gyro.cpp
-	Gyro.hpp
+px4_add_library(sensor_calibration
+	Accelerometer.cpp
+	Accelerometer.hpp
+	Gyroscope.cpp
+	Gyroscope.hpp
 	Magnetometer.cpp
 	Magnetometer.hpp
 	Utilities.cpp

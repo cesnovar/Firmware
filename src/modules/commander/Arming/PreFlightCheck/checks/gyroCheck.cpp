@@ -36,7 +36,7 @@
 #include <drivers/drv_hrt.h>
 #include <HealthFlags.h>
 #include <px4_defines.h>
-#include <lib/calibration/Utilities.hpp>
+#include <lib/sensor_calibration/Utilities.hpp>
 #include <lib/systemlib/mavlink_log.h>
 #include <uORB/Subscription.hpp>
 #include <uORB/topics/sensor_gyro.h>

@@ -130,16 +130,16 @@
 #include <px4_platform_common/time.h>
 
 #include <drivers/drv_hrt.h>
-#include <lib/calibration/Utilities.hpp>
+#include <lib/sensor_calibration/Accelerometer.hpp>
+#include <lib/sensor_calibration/Utilities.hpp>
 #include <lib/mathlib/mathlib.h>
 #include <lib/ecl/geo/geo.h>
 #include <matrix/math.hpp>
 #include <lib/conversion/rotation.h>
 #include <lib/parameters/param.h>
-#include <systemlib/err.h>
-#include <systemlib/mavlink_log.h>
+#include <lib/systemlib/err.h>
+#include <lib/systemlib/mavlink_log.h>
 #include <uORB/topics/sensor_accel.h>
-#include <uORB/topics/sensor_correction.h>
 #include <uORB/Subscription.hpp>
 #include <uORB/SubscriptionBlocking.hpp>
 
@@ -150,7 +150,6 @@ using math::radians;
 
 static constexpr char sensor_name[] {"accel"};
 static constexpr unsigned MAX_ACCEL_SENS = 3;
-static constexpr uint8_t ACCEL_DEFAULT_PRIORITY = 50;
 
 static calibrate_return do_accel_calibration_measurements(orb_advert_t *mavlink_log_pub,
 		Vector3f(&accel_offs)[MAX_ACCEL_SENS],
@@ -176,34 +175,20 @@ int do_accel_calibration(orb_advert_t *mavlink_log_pub)
 
 	int res = PX4_OK;
 
-	int32_t device_id[MAX_ACCEL_SENS] {};
-	int32_t priority[MAX_ACCEL_SENS] {ACCEL_DEFAULT_PRIORITY, ACCEL_DEFAULT_PRIORITY, ACCEL_DEFAULT_PRIORITY};
+	sensors::calibration::Accelerometer calibrations[MAX_ACCEL_SENS] {};
 
 	unsigned active_sensors = 0;
 
 	for (uint8_t cur_accel = 0; cur_accel < MAX_ACCEL_SENS; cur_accel++) {
 		uORB::SubscriptionData<sensor_accel_s> accel_sub{ORB_ID(sensor_accel), cur_accel};
-		accel_sub.update();
 
 		if (accel_sub.advertised() && (accel_sub.get().device_id != 0) && (accel_sub.get().timestamp > 0)) {
-
-			device_id[cur_accel] = accel_sub.get().device_id;
-
-			// find and preserve existing CAL_ACCx_PRIO parameter
-			int8_t cal_index = FindCalibrationIndex("ACC", device_id[cur_accel]);
-
-			if (cal_index >= 0) {
-				// CAL_ACCx_PRIO
-				priority[cur_accel] = GetCalibrationParam("ACC", "PRIO", cal_index);
-
-				// check configured priority and reset if necessary
-				if (priority[cur_accel] < 0 || priority[cur_accel] > 100) {
-					priority[cur_accel] = ACCEL_DEFAULT_PRIORITY;
-				}
-			}
-
+			calibrations[cur_accel].set_device_id(accel_sub.get().device_id);
 			active_sensors++;
 		}
+
+		// reset calibration index to match uORB numbering
+		calibrations[cur_accel].set_calibration_index(cur_accel);
 	}
 
 	/* measure and calculate offsets & scales */
@@ -228,34 +213,17 @@ int do_accel_calibration(orb_advert_t *mavlink_log_pub)
 	const Dcmf board_rotation_t = board_rotation.transpose();
 
 	for (unsigned uorb_index = 0; uorb_index < MAX_ACCEL_SENS; uorb_index++) {
-
-		Vector3f offset;
-		Vector3f scale;
-
-		if (device_id[uorb_index] != 0) {
+		if (calibrations[uorb_index].device_id() != 0) {
 			/* handle individual sensors, one by one */
 			const Vector3f accel_offs_rotated = board_rotation_t *accel_offs[uorb_index];
 			const Matrix3f accel_T_rotated = board_rotation_t *accel_T[uorb_index] * board_rotation;
 
-			offset = accel_offs_rotated;
-			scale = accel_T_rotated.diag();
-
-			PX4_DEBUG("[cal] %s %u offset: [%.4f %.4f %.4f] scale: [%.4f %.4f %.4f]", "ACC", device_id[uorb_index],
-				  (double)offset(0), (double)offset(1), (double)offset(2),
-				  (double)scale(0), (double)scale(1), (double)scale(2));
-
-		} else {
-			// all unused parameters set to default values
-			offset.zero();
-			scale = Vector3f{1.f, 1.f, 1.f};
-			priority[uorb_index] = ACCEL_DEFAULT_PRIORITY;
+			calibrations[uorb_index].set_offset(accel_offs_rotated);
+			calibrations[uorb_index].set_scale(accel_T_rotated.diag());
 		}
 
-		// save calibration
-		SetCalibrationParam("ACC", "ID", uorb_index, device_id[uorb_index]);
-		SetCalibrationParam("ACC", "PRIO", uorb_index, priority[uorb_index]);
-		SetCalibrationParamsVector3f("ACC", "OFF", uorb_index, offset);
-		SetCalibrationParamsVector3f("ACC", "SCALE", uorb_index, scale);
+		// save all instances to reset empty slots
+		calibrations[uorb_index].ParametersSave();
 	}
 
 	param_notify_changes();
@@ -333,23 +301,20 @@ static calibrate_return do_accel_calibration_measurements(orb_advert_t *mavlink_
 static calibrate_return read_accelerometer_avg(float (&accel_avg)[MAX_ACCEL_SENS][detect_orientation_side_count][3],
 		unsigned orient, unsigned samples_num)
 {
-	const Dcmf board_rotation = GetBoardRotation();
+	const Dcmf board_rotation = sensors::calibration::GetBoardRotation();
 
 	Vector3f accel_sum[MAX_ACCEL_SENS] {};
 	unsigned counts[MAX_ACCEL_SENS] {};
 
 	unsigned errcount = 0;
 
-	// sensor thermal corrections
-	uORB::Subscription sensor_correction_sub{ORB_ID(sensor_correction)};
-	sensor_correction_s sensor_correction{};
-	sensor_correction_sub.copy(&sensor_correction);
-
 	uORB::SubscriptionBlocking<sensor_accel_s> accel_sub[MAX_ACCEL_SENS] {
 		{ORB_ID(sensor_accel), 0, 0},
 		{ORB_ID(sensor_accel), 0, 1},
 		{ORB_ID(sensor_accel), 0, 2},
 	};
+
+	sensors::calibration::Accelerometer calibrations[MAX_ACCEL_SENS] {};
 
 	/* use the first sensor to pace the readout, but do per-sensor counts */
 	while (counts[0] < samples_num) {
@@ -358,29 +323,11 @@ static calibrate_return read_accelerometer_avg(float (&accel_avg)[MAX_ACCEL_SENS
 				sensor_accel_s arp;
 
 				if (accel_sub[accel_index].update(&arp)) {
-					// fetch optional thermal offset corrections in sensor/board frame
-					Vector3f offset{0, 0, 0};
-					sensor_correction_sub.update(&sensor_correction);
+					calibrations[accel_index].set_device_id(arp.device_id);
+					calibrations[accel_index].Reset(); // we only want thermal calibration (if available)
 
-					if (sensor_correction.timestamp > 0 && arp.device_id != 0) {
-						for (uint8_t correction_index = 0; correction_index < MAX_ACCEL_SENS; correction_index++) {
-							if (sensor_correction.accel_device_ids[correction_index] == arp.device_id) {
-								switch (correction_index) {
-								case 0:
-									offset = Vector3f{sensor_correction.accel_offset_0};
-									break;
-								case 1:
-									offset = Vector3f{sensor_correction.accel_offset_1};
-									break;
-								case 2:
-									offset = Vector3f{sensor_correction.accel_offset_2};
-									break;
-								}
-							}
-						}
-					}
+					accel_sum[accel_index] += calibrations[accel_index].Correct(Vector3f{arp.x, arp.y, arp.z});
 
-					accel_sum[accel_index] += Vector3f{arp.x, arp.y, arp.z} - offset;
 					counts[accel_index]++;
 				}
 			}

@@ -33,21 +33,65 @@
 
 #pragma once
 
-#include <matrix/math.hpp>
+#include <lib/conversion/rotation.h>
+#include <lib/matrix/matrix/math.hpp>
+#include <px4_platform_common/px4_config.h>
+#include <px4_platform_common/log.h>
+#include <uORB/Subscription.hpp>
+#include <uORB/topics/sensor_correction.h>
 
 namespace sensors::calibration
 {
 
-int8_t FindCalibrationIndex(const char *sensor_type, uint32_t device_id);
+class Accelerometer
+{
+public:
+	static constexpr int MAX_SENSOR_COUNT = 3;
+	static constexpr uint8_t DEFAULT_PRIORITY = 50;
+	static constexpr const char *SensorString() { return "ACC"; }
 
-int32_t GetCalibrationParam(const char *sensor_type, const char *cal_type, uint8_t instance);
-void SetCalibrationParam(const char *sensor_type, const char *cal_type, uint8_t instance, int32_t value);
+	Accelerometer() = default;
+	~Accelerometer() = default;
 
-matrix::Vector3f GetCalibrationParamsVector3f(const char *sensor_type, const char *cal_type, uint8_t instance);
-void SetCalibrationParamsVector3f(const char *sensor_type, const char *cal_type, uint8_t instance,
-				  matrix::Vector3f values);
+	void PrintStatus();
 
-matrix::Dcmf GetBoardRotation();
+	void set_calibration_index(uint8_t calibration_index) { _calibration_index = calibration_index; }
+	void set_device_id(uint32_t device_id);
+	void set_external(bool external = true) { _external = external; }
+	void set_offset(const matrix::Vector3f &offset) { _offset = offset; }
+	void set_scale(const matrix::Vector3f &scale) { _scale = scale; }
 
+	uint32_t device_id() const { return _device_id; }
+	bool enabled() const { return _enabled; }
+	bool external() const { return _external; }
+
+	// apply offsets and scale
+	// rotate corrected measurements from sensor to body frame
+	matrix::Vector3f Correct(const matrix::Vector3f &data);
+
+	bool ParametersSave();
+	void ParametersUpdate();
+
+	void Reset();
+
+	void SensorCorrectionsUpdate(bool force = false);
+
+	const matrix::Dcmf &getBoardRotation() const { return _rotation; }
+
+private:
+	uORB::Subscription _sensor_correction_sub{ORB_ID(sensor_correction)};
+
+	matrix::Dcmf _rotation;
+	matrix::Vector3f _offset{0.f, 0.f, 0.f};
+	matrix::Vector3f _scale{1.f, 1.f, 1.f};
+	matrix::Vector3f _thermal_offset{0.f, 0.f, 0.f};
+
+	int8_t _calibration_index{-1};
+	uint32_t _device_id{0};
+	int32_t _priority{0};
+
+	bool _enabled{true};
+	bool _external{false};
+};
 
 } // namespace sensors::calibration

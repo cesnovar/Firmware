@@ -51,7 +51,6 @@ px4_add_module(
 		rc_calibration.cpp
 		state_machine_helper.cpp
 	DEPENDS
-		calibration
 		circuit_breaker
 		failure_detector
 		git_ecl
@@ -60,6 +59,7 @@ px4_add_module(
 		PreFlightCheck
 		ArmAuthorization
 		HealthFlags
+		sensor_calibration
 	)
 
 if(PX4_TESTING)

@@ -48,12 +48,12 @@ px4_add_module(
 		sensors.cpp
 	DEPENDS
 		airspeed
-		calibration
 		conversion
 		data_validator
 		drivers__device
 		git_ecl
 		mathlib
+		sensor_calibration
 		vehicle_acceleration
 		vehicle_angular_velocity
 		vehicle_air_data

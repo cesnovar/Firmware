@@ -33,62 +33,21 @@
 
 #pragma once
 
-#include <px4_platform_common/px4_config.h>
-#include <px4_platform_common/log.h>
-#include <lib/conversion/rotation.h>
-#include <lib/matrix/matrix/math.hpp>
-#include <uORB/Subscription.hpp>
-#include <uORB/topics/actuator_controls.h>
-#include <uORB/topics/battery_status.h>
+#include <matrix/math.hpp>
 
-namespace Sensors::Calibration
+namespace sensors::calibration
 {
 
-class Magnetometer
-{
-public:
-	Magnetometer() = default;
-	~Magnetometer() = default;
+int8_t FindCalibrationIndex(const char *sensor_type, uint32_t device_id);
 
-	void PrintStatus();
+int32_t GetCalibrationParam(const char *sensor_type, const char *cal_type, uint8_t instance);
+int SetCalibrationParam(const char *sensor_type, const char *cal_type, uint8_t instance, int32_t value);
 
-	void set_device_id(uint32_t device_id);
-	void set_external(bool external = true) { _external = external; }
+matrix::Vector3f GetCalibrationParamsVector3f(const char *sensor_type, const char *cal_type, uint8_t instance);
+int SetCalibrationParamsVector3f(const char *sensor_type, const char *cal_type, uint8_t instance,
+				 matrix::Vector3f values);
 
-	uint32_t device_id() const { return _device_id; }
-	int32_t priority() const { return _priority; }
-	bool enabled() const { return (_priority > 0); }
-	bool external() const { return _external; }
+matrix::Dcmf GetBoardRotation();
 
-	// apply offsets and scale
-	// rotate corrected measurements from sensor to body frame
-	matrix::Vector3f Correct(const matrix::Vector3f &data);
 
-	void ParametersUpdate();
-	void SensorCorrectionsUpdate(bool force = false);
-
-	void UpdatePower(float power) { _power = power; }
-
-private:
-
-	static constexpr int MAX_SENSOR_COUNT = 4;
-
-	static constexpr uint8_t MAG_DEFAULT_PRIORITY = 50;
-	static constexpr uint8_t MAG_DEFAULT_EXTERNAL_PRIORITY = 75;
-
-	matrix::Dcmf _rotation;
-
-	matrix::Vector3f _offset;
-	matrix::Matrix3f _scale;
-	matrix::Vector3f _power_compensation;
-	float _power{0.f};
-
-	int8_t _calibration_index{-1};
-
-	uint32_t _device_id{0};
-
-	int32_t _priority{MAG_DEFAULT_PRIORITY};
-	bool _external{false};
-};
-
-} // namespace sensors
+} // namespace sensors::calibration

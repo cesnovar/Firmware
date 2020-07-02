@@ -31,9 +31,10 @@
  *
  ****************************************************************************/
 
-#include "Accel.hpp"
+#include "Gyroscope.hpp"
 
-#include <lib/calibration/Utilities.hpp>
+#include "Utilities.hpp"
+
 #include <lib/parameters/param.h>
 
 using namespace matrix;
@@ -42,25 +43,19 @@ using namespace time_literals;
 
 using math::radians;
 
-namespace Sensors::Calibration
+namespace sensors::calibration
 {
 
-void Accel::set_device_id(uint32_t device_id)
+void Gyroscope::set_device_id(uint32_t device_id)
 {
 	if (_device_id != device_id) {
 		_device_id = device_id;
 		SensorCorrectionsUpdate(true);
-		// TODO: ParametersUpdate();
+		ParametersUpdate();
 	}
 }
 
-matrix::Vector3f Accel::Correct(const matrix::Vector3f &data)
-{
-	SensorCorrectionsUpdate();
-	return _rotation * matrix::Vector3f{(data - _thermal_offset - _offset).emult(_scale)};
-}
-
-void Accel::SensorCorrectionsUpdate(bool force)
+void Gyroscope::SensorCorrectionsUpdate(bool force)
 {
 	// check if the selected sensor has updated
 	if (_sensor_correction_sub.updated() || force) {
@@ -75,16 +70,16 @@ void Accel::SensorCorrectionsUpdate(bool force)
 		if (_sensor_correction_sub.copy(&corrections)) {
 			// find sensor_corrections index
 			for (int i = 0; i < MAX_SENSOR_COUNT; i++) {
-				if (corrections.accel_device_ids[i] == _device_id) {
+				if (corrections.gyro_device_ids[i] == _device_id) {
 					switch (i) {
 					case 0:
-						_thermal_offset = Vector3f{corrections.accel_offset_0};
+						_thermal_offset = Vector3f{corrections.gyro_offset_0};
 						return;
 					case 1:
-						_thermal_offset = Vector3f{corrections.accel_offset_1};
+						_thermal_offset = Vector3f{corrections.gyro_offset_1};
 						return;
 					case 2:
-						_thermal_offset = Vector3f{corrections.accel_offset_2};
+						_thermal_offset = Vector3f{corrections.gyro_offset_2};
 						return;
 					}
 				}
@@ -96,9 +91,10 @@ void Accel::SensorCorrectionsUpdate(bool force)
 	}
 }
 
-void Accel::ParametersUpdate()
+void Gyroscope::ParametersUpdate()
 {
 	if (_device_id == 0) {
+		Reset();
 		return;
 	}
 
@@ -110,34 +106,49 @@ void Accel::ParametersUpdate()
 		_rotation.setIdentity();
 	}
 
+	_calibration_index = FindCalibrationIndex(SensorString(), _device_id);
 
-	int calibration_index = FindCalibrationIndex(SensorString(), _device_id);
+	if (_calibration_index >= 0) {
+		_priority = GetCalibrationParam(SensorString(), "PRIO", _calibration_index);
 
-	if (calibration_index >= 0) {
-		int32_t priority_val = GetCalibrationParam(SensorString(), "PRIO", calibration_index);
-
-		if (priority_val < 0 || priority_val > 100) {
+		if (_priority < 0 || _priority > 100) {
 			// reset to default
-			PX4_ERR("%s %d invalid priorit %d, resetting to %d", SensorString(), calibration_index, priority_val, DEFAULT_PRIORITY);
-			SetCalibrationParam(SensorString(), "PRIO", calibration_index, DEFAULT_PRIORITY);
+			PX4_ERR("%s %d invalid priority %d, resetting to %d", SensorString(), _calibration_index, _priority, DEFAULT_PRIORITY);
+			SetCalibrationParam(SensorString(), "PRIO", _calibration_index, DEFAULT_PRIORITY);
+			_priority = DEFAULT_PRIORITY;
 		}
 
-		_enabled = (priority_val > 0);
-
-		_offset = GetCalibrationParamsVector3f(SensorString(), "OFF", calibration_index);
-		_scale = GetCalibrationParamsVector3f(SensorString(), "SCALE", calibration_index);
+		_offset = GetCalibrationParamsVector3f(SensorString(), "OFF", _calibration_index);
 
 	} else {
-		_enabled = true;
-		_offset.zero();
-		_scale = Vector3f{1.f, 1.f, 1.f};
+		Reset();
 	}
 }
 
-void Accel::PrintStatus()
+void Gyroscope::Reset()
 {
-	PX4_INFO("%s %d EN: %d, offset: [%.4f %.4f %.4f] scale: [%.4f %.4f %.4f]", SensorString(), _device_id, _enabled,
-		 (double)_offset(0), (double)_offset(1), (double)_offset(2), (double)_scale(0), (double)_scale(1), (double)_scale(2));
+	_offset.zero();
+	_priority = DEFAULT_PRIORITY;
+}
+
+bool Gyroscope::ParametersSave()
+{
+	if (_calibration_index >= 0) {
+		// save calibration
+		SetCalibrationParam(SensorString(), "ID", _calibration_index, _device_id);
+		SetCalibrationParam(SensorString(), "PRIO", _calibration_index, _priority);
+		SetCalibrationParamsVector3f(SensorString(), "OFF", _calibration_index, _offset);
+
+		return true;
+	}
+
+	return false;
+}
+
+void Gyroscope::PrintStatus()
+{
+	PX4_INFO("%s %d EN: %d, offset: [%.4f %.4f %.4f]", SensorString(), device_id(), enabled(),
+		 (double)_offset(0), (double)_offset(1), (double)_offset(2));
 
 	if (_thermal_offset.norm() > 0.f) {
 		PX4_INFO("%s %d temperature offset: [%.4f %.4f %.4f]", SensorString(), _device_id,

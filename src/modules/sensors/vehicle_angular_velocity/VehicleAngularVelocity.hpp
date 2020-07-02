@@ -33,7 +33,7 @@
 
 #pragma once
 
-#include <lib/calibration/SensorCalibration.hpp>
+#include <lib/sensor_calibration/Gyroscope.hpp>
 #include <lib/mathlib/math/Limits.hpp>
 #include <lib/matrix/matrix/math.hpp>
 #include <lib/mathlib/math/filter/LowPassFilter2pVector3f.hpp>
@@ -90,7 +90,7 @@ private:
 		{this, ORB_ID(sensor_gyro), 2}
 	};
 
-	SensorCalibration _calibration{SensorCalibration::SensorType::Gyroscope};
+	calibration::Gyroscope _calibration{};
 
 	matrix::Vector3f _bias{0.f, 0.f, 0.f};
 

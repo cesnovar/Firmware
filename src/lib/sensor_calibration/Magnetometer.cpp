@@ -31,7 +31,7 @@
  *
  ****************************************************************************/
 
-#include "MagnetometerCalibration.hpp"
+#include "Magnetometer.hpp"
 
 #include "Utilities.hpp"
 #include <lib/parameters/param.h>
@@ -42,7 +42,7 @@ using namespace time_literals;
 
 using math::radians;
 
-namespace Sensors::Calibration
+namespace sensors::calibration
 {
 
 void Magnetometer::set_device_id(uint32_t device_id)
@@ -61,38 +61,38 @@ Vector3f Magnetometer::Correct(const Vector3f &data)
 void Magnetometer::ParametersUpdate()
 {
 	if (_device_id == 0) {
+		Reset();
 		return;
 	}
 
-	const int calibration_index = FindCalibrationIndex("MAG", _device_id);
+	_calibration_index = FindCalibrationIndex("MAG", _device_id);
 
-	if (calibration_index >= 0) {
-
-		char str[30] {};
+	if (_calibration_index >= 0) {
 
 		if (!_external) {
 			_rotation = GetBoardRotation();
+			_rotation_enum = ROTATION_NONE;
 
 		} else {
-			int32_t rotation = GetCalibrationParam("MAG", "ROT", calibration_index);
+			int32_t rotation = GetCalibrationParam(SensorString(), "ROT", _calibration_index);
+			_rotation_enum = static_cast<Rotation>(rotation);
 			_rotation = get_rot_matrix((enum Rotation)rotation);
 		}
 
 		// CAL_MAGx_PRIO
-		_priority = GetCalibrationParam("MAG", "PRIO", calibration_index);
+		_priority = GetCalibrationParam("MAG", "PRIO", _calibration_index);
 
 		if (_priority < 0 || _priority > 100) {
 			// reset to default
 			int32_t new_priority = _external ? MAG_DEFAULT_EXTERNAL_PRIORITY : MAG_DEFAULT_PRIORITY;
-			PX4_ERR("%s invalid value %d, resetting to %d", str, _priority, new_priority);
+			PX4_ERR("%s %d invalid priority %d, resetting to %d", SensorString(), _calibration_index, _priority, new_priority);
+			SetCalibrationParam(SensorString(), "PRIO", _calibration_index, new_priority);
 			_priority = new_priority;
-			param_set_no_notification(param_find(str), &_priority);
 		}
 
-		_offset = GetCalibrationParamsVector3f("MAG", "OFF", calibration_index);
-		Vector3f diag = GetCalibrationParamsVector3f("MAG", "SCALE", calibration_index);
-		Vector3f offdiag = GetCalibrationParamsVector3f("MAG", "ODIAG", calibration_index);
-		_power_compensation = GetCalibrationParamsVector3f("MAG", "COMP", calibration_index);
+		_offset = GetCalibrationParamsVector3f(SensorString(), "OFF", _calibration_index);
+		Vector3f diag = GetCalibrationParamsVector3f(SensorString(), "SCALE", _calibration_index);
+		Vector3f offdiag = GetCalibrationParamsVector3f(SensorString(), "ODIAG", _calibration_index);
 
 		float scale[9] {
 			diag(0),    offdiag(0), offdiag(1),
@@ -101,19 +101,53 @@ void Magnetometer::ParametersUpdate()
 		};
 		_scale = Matrix3f{scale};
 
-	} else {
-		_priority = _external ? MAG_DEFAULT_EXTERNAL_PRIORITY : MAG_DEFAULT_PRIORITY;
-		_offset.zero();
-		_scale.setIdentity();
-		_power_compensation.zero();
+		_power_compensation = GetCalibrationParamsVector3f(SensorString(), "COMP", _calibration_index);
 
-		_rotation.setIdentity();
 	}
+}
+
+void Magnetometer::Reset()
+{
+	_priority = _external ? MAG_DEFAULT_EXTERNAL_PRIORITY : MAG_DEFAULT_PRIORITY;
+	_offset.zero();
+	_scale.setIdentity();
+	_power_compensation.zero();
+
+	_rotation.setIdentity();
+}
+
+bool Magnetometer::ParametersSave()
+{
+	if (_calibration_index >= 0) {
+		// save calibration
+		SetCalibrationParam(SensorString(), "ID", _calibration_index, _device_id);
+		SetCalibrationParam(SensorString(), "PRIO", _calibration_index, _priority);
+		SetCalibrationParamsVector3f(SensorString(), "OFF", _calibration_index, _offset);
+
+		Vector3f scale{_scale.diag()};
+		Vector3f off_diag{_scale(0, 1), _scale(0, 2), _scale(1, 2)};
+
+		SetCalibrationParamsVector3f(SensorString(), "SCALE", _calibration_index, scale);
+		SetCalibrationParamsVector3f(SensorString(), "ODIAG", _calibration_index, off_diag);
+
+		SetCalibrationParamsVector3f(SensorString(), "COMP", _calibration_index, _power_compensation);
+
+		if (_external) {
+			SetCalibrationParam(SensorString(), "ROT", _calibration_index, (int32_t)_rotation_enum);
+
+		} else {
+			SetCalibrationParam(SensorString(), "ROT", _calibration_index, -1);
+		}
+
+		return true;
+	}
+
+	return false;
 }
 
 void Magnetometer::PrintStatus()
 {
-	PX4_INFO("%s %d EN: %d, offset: [%.4f %.4f %.4f] scale: [%.4f %.4f %.4f]", "MAG", device_id(), enabled(),
+	PX4_INFO("%s %d EN: %d, offset: [%.4f %.4f %.4f] scale: [%.4f %.4f %.4f]", SensorString(), device_id(), enabled(),
 		 (double)_offset(0), (double)_offset(1), (double)_offset(2),
 		 (double)_scale(0, 0), (double)_scale(1, 1), (double)_scale(2, 2));
 

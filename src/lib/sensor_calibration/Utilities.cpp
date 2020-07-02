@@ -90,16 +90,20 @@ int32_t GetCalibrationParam(const char *sensor_type, const char *cal_type, uint8
 	return value;
 }
 
-void SetCalibrationParam(const char *sensor_type, const char *cal_type, uint8_t instance, int32_t value)
+int SetCalibrationParam(const char *sensor_type, const char *cal_type, uint8_t instance, int32_t value)
 {
 	char str[20] {};
 
 	// eg CAL_MAGn_ID/CAL_MAGn_ROT
 	sprintf(str, "CAL_%s%u_%s", sensor_type, instance, cal_type);
 
-	if (param_set_no_notification(param_find(str), &value) != 0) {
+	int ret = param_set_no_notification(param_find(str), &value);
+
+	if (ret != PX4_OK) {
 		PX4_ERR("failed to set %s = %d", str, value);
 	}
+
+	return ret;
 }
 
 Vector3f GetCalibrationParamsVector3f(const char *sensor_type, const char *cal_type, uint8_t instance)
@@ -122,8 +126,9 @@ Vector3f GetCalibrationParamsVector3f(const char *sensor_type, const char *cal_t
 	return values;
 }
 
-void SetCalibrationParamsVector3f(const char *sensor_type, const char *cal_type, uint8_t instance, Vector3f values)
+int SetCalibrationParamsVector3f(const char *sensor_type, const char *cal_type, uint8_t instance, Vector3f values)
 {
+	int ret = PX4_OK;
 	char str[20] {};
 
 	for (int axis = 0; axis < 3; axis++) {
@@ -134,8 +139,11 @@ void SetCalibrationParamsVector3f(const char *sensor_type, const char *cal_type,
 
 		if (param_set_no_notification(param_find(str), &values(axis)) != 0) {
 			PX4_ERR("failed to set %s = %.4f", str, (double)values(axis));
+			ret = PX4_ERROR;
 		}
 	}
+
+	return ret;
 }
 
 Dcmf GetBoardRotation()

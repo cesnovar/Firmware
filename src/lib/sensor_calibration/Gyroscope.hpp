@@ -33,44 +33,51 @@
 
 #pragma once
 
-#include <lib/conversion/rotation.h>
-#include <lib/matrix/matrix/math.hpp>
 #include <px4_platform_common/px4_config.h>
 #include <px4_platform_common/log.h>
+#include <lib/conversion/rotation.h>
+#include <lib/matrix/matrix/math.hpp>
 #include <uORB/Subscription.hpp>
 #include <uORB/topics/sensor_correction.h>
 
-namespace Sensors::Calibration
+namespace sensors::calibration
 {
 
-class Gyro
+class Gyroscope
 {
 public:
 	static constexpr int MAX_SENSOR_COUNT = 3;
 	static constexpr uint8_t DEFAULT_PRIORITY = 50;
 	static constexpr const char *SensorString() { return "GYRO"; }
 
-	Gyro() = default;
-	~Gyro() = default;
+	Gyroscope() = default;
+	~Gyroscope() = default;
 
 	void PrintStatus();
 
+	void set_calibration_index(uint8_t calibration_index) { _calibration_index = calibration_index; }
 	void set_device_id(uint32_t device_id);
 	void set_external(bool external = true) { _external = external; }
+	void set_offset(const matrix::Vector3f &offset) { _offset = offset; }
 
 	uint32_t device_id() const { return _device_id; }
-	bool enabled() const { return _enabled; }
+	int32_t priority() const { return _priority; }
+	bool enabled() const { return (_priority > 0); }
 	bool external() const { return _external; }
 
 	// apply offsets and scale
 	// rotate corrected measurements from sensor to body frame
 	inline matrix::Vector3f Correct(const matrix::Vector3f &data)
 	{
-		// TODO: SensorCorrectionsUpdate();
+		SensorCorrectionsUpdate();
 		return _rotation * matrix::Vector3f{data - _thermal_offset - _offset};
 	}
 
+	bool ParametersSave();
 	void ParametersUpdate();
+
+	void Reset();
+
 	void SensorCorrectionsUpdate(bool force = false);
 
 	const matrix::Dcmf &getBoardRotation() const { return _rotation; }
@@ -86,8 +93,7 @@ private:
 	uint32_t _device_id{0};
 	int32_t _priority{0};
 
-	bool _enabled{true};
 	bool _external{false};
 };
 
-} // namespace Sensors::Calibration
+} // namespace sensors::calibration

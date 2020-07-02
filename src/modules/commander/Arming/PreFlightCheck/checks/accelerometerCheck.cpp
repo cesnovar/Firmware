@@ -37,7 +37,7 @@
 #include <HealthFlags.h>
 #include <math.h>
 #include <px4_defines.h>
-#include <lib/calibration/Utilities.hpp>
+#include <lib/sensor_calibration/Utilities.hpp>
 #include <lib/systemlib/mavlink_log.h>
 #include <uORB/Subscription.hpp>
 #include <uORB/topics/sensor_accel.h>
